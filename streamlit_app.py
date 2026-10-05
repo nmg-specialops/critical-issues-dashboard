@@ -1,42 +1,45 @@
+"""Public issues register with an optional card view and protected editing."""
 from datetime import datetime
+from html import escape
+from hashlib import sha256
 from zoneinfo import ZoneInfo
-import requests
 import pandas as pd
-import plotly.express as px
+import requests
 import streamlit as st
-from auth import require_user
+from auth import setting
 from data_model import KEY,SCHEMA,calculate,workbook_bytes
-from workbook_model import read
+from workbook_model import read,PARTNERS
 from workbook_store import DropboxStore,StoreError,DEFAULT_LINK,MAX_BYTES
 from editor import render as render_editor
 
-st.set_page_config(page_title='Special Ops | Critical Issues',page_icon='📍',layout='wide')
-st.markdown('<style>.block-container {padding-top:2rem;} [data-testid="stMetric"] {background:#edf4f5;padding:1rem;border-radius:12px;color:#173D50;} h1,h2,h3 {letter-spacing:-.025em;}</style>',unsafe_allow_html=True)
-st.title('Special Ops · Critical Issues & Priorities')
-user=require_user()
-try: today=pd.Timestamp(datetime.now(ZoneInfo(st.secrets.get('TIMEZONE','America/Los_Angeles'))).date())
-except Exception: st.error('Set a valid TIMEZONE in Secrets.');st.stop()
-config=dict(st.secrets.get('dropbox',{}))
+st.set_page_config(page_title='Special Ops | Issues',page_icon='📋',layout='wide')
+st.markdown('''<style>
+.block-container {max-width:1500px;padding-top:2rem;padding-bottom:3rem;}
+h1,h2,h3 {letter-spacing:-.03em;}
+[data-testid="stMetric"] {background:#eef5f5;border-radius:14px;padding:14px 20px;}
+[data-testid="stMetricLabel"], [data-testid="stMetricValue"] {color:#173d50;}
+.issue-tag {display:inline-block;border-radius:20px;padding:4px 11px;margin:0 5px 7px 0;font-size:12px;font-weight:600;}
+.issue-eyebrow {font-size:12px;font-weight:650;letter-spacing:.06em;color:#52727c;text-transform:uppercase;margin:5px 0 10px;}
+</style>''',unsafe_allow_html=True)
+st.title('Critical issues, clearly.')
+st.caption('One shared view of the problems, people and next steps across Special Ops.')
+try: today=pd.Timestamp(datetime.now(ZoneInfo(setting('TIMEZONE','America/Los_Angeles'))).date())
+except Exception: st.error('Set a valid TIMEZONE in Streamlit Secrets.');st.stop()
+config=dict(setting('dropbox',{}))
 connected=all(config.get(k) for k in ['app_key','app_secret','refresh_token'])
 store=DropboxStore(config) if connected else None
 with st.sidebar:
-    st.write(f"Signed in: {user['name']} ({user['role']})")
-    if st.button('Sign out'):
-        st.session_state.clear();st.rerun()
-    st.header('Workbook')
-    st.caption('Source: SPCL, SPOL and PM partner sheets. Overview is excluded.')
-    st.caption('Refresh discards unsaved form input. Save or download a draft first.')
-    if st.button('Reload from Dropbox',width='stretch'):
+    st.subheader('Source workbook')
+    st.caption('SPCL · SPOL · PM')
+    if st.button('Refresh from Dropbox',width='stretch'):
         st.session_state.pop('snapshot',None)
         st.session_state.pop('save_blocked',None)
         st.rerun()
-    stale_days=st.number_input('Flag updates older than (days)',min_value=1,value=14)
+    st.caption('Refresh to see changes made by someone else. Save any form edits first.')
 if 'snapshot' not in st.session_state:
     try:
-        if store:
-            st.session_state.snapshot=store.load()
+        if store: st.session_state.snapshot=store.load()
         else:
-            # Read-only access to the exact supplied link; no source file is packaged in GitHub.
             with requests.get(DEFAULT_LINK.replace('dl=0','dl=1'),timeout=(10,45),stream=True) as response:
                 response.raise_for_status();chunks=[];size=0
                 for chunk in response.iter_content(65536):
@@ -46,163 +49,178 @@ if 'snapshot' not in st.session_state:
             data=b''.join(chunks)
             st.session_state.snapshot={'bytes':data,'rev':'read-only','file_id':'','name':'SpOps_ProjectCriticalPoints-Priorities.xlsx','modified':''}
     except StoreError as exc: st.error(str(exc));st.stop()
-    except Exception: st.error('Could not download the source workbook. Check Dropbox access and try Reload.');st.stop()
+    except Exception: st.error('Could not load the Dropbox workbook. Try Refresh from Dropbox.');st.stop()
 snapshot=st.session_state.snapshot
-# If credentials have been added to a previously read-only session, obtain an authenticated snapshot before allowing saves.
 if store and snapshot['rev']=='read-only':
     st.session_state.pop('snapshot',None);st.rerun()
 try: parsed=read(snapshot['bytes'])
 except Exception as exc: st.error(f'Workbook layout or values need attention: {exc}');st.stop()
 tables=parsed['tables']
-issues,actions=calculate(tables,today,stale_days)
+issues,actions=calculate(tables,today,14)
 if 'saved_message' in st.session_state: st.success(st.session_state.pop('saved_message'))
-if not connected: st.info('Read-only connection. To enable Save to Dropbox, complete the one-time Dropbox setup in README.md.')
-st.caption(f"{snapshot['name']} · {len(issues)} issues · Reporting date {today:%d %b %Y} · {snapshot.get('modified','')}")
-unassessed = int(issues['Severity'].eq('Unassessed').sum())
-unreviewed = int(issues['Status'].eq('Unreviewed').sum())
-if unassessed or unreviewed:
-    st.warning(f'{unassessed} issues have no assessed severity; {unreviewed} have no reviewed status. Review these in Edit & Save. Existing responsibility and timing text is preserved.')
-
 with st.sidebar:
-    st.header('Filters')
-    selected = issues.copy()
-    for col in ['Partner','Project','Topic','Severity','Status','Responsible']:
-        options = sorted(issues[col].unique())
-        values = st.multiselect('Issue '+col.lower(),options,format_func=lambda x: x or '(Unassigned)')
-        if values: selected = selected[selected[col].isin(values)]
-    search = st.text_input('Search issue text')
-    if search:
-        mask = selected[SCHEMA['Issues']].fillna('').astype(str).apply(lambda col: col.str.contains(search,case=False,regex=False)).any(axis=1)
-        selected = selected[mask]
-    st.caption('Sidebar filters apply to the five dashboard tabs. Edit & Save has its own issue selector. Responsible filters the issue owner; the Actions tab has a separate action-owner filter.')
+    st.caption(snapshot['name'])
+    if snapshot.get('modified'): st.caption('Dropbox update: '+snapshot['modified'])
+    st.caption('Viewing is open. Sign in only in Edit & Save.')
 
-def related(frame, subset):
+
+def related(frame,subset):
     return frame.merge(subset[KEY],on=KEY,how='inner')
 
-def table(frame, columns=None):
-    if frame.empty: st.info('No matching records.'); return
-    st.dataframe(frame[columns] if columns else frame,hide_index=True,width='stretch')
 
-def chart(fig):
-    fig.update_layout(margin=dict(l=15,r=15,t=35,b=20),height=420,legend=dict(orientation='h',y=-.25),font=dict(size=13))
-    st.plotly_chart(fig,width='stretch')
+def date_label(value):
+    return pd.Timestamp(value).strftime('%d %b %Y') if pd.notna(value) else 'Not set'
 
-def card(row):
-    title = f"{row['Severity']} · {row['Issue']} — {row['Partner']} / {row['Project']}"
-    with st.expander(title):
-        st.write(row['Attention reasons'])
-        st.write(f"**Status:** {row['Status']} · **Owner:** {row['Responsible'] or 'Unassigned'}")
-        for label in ['Partner responsible','Special Ops responsible','Timing','Problem','Effects','Root cause','Root cause confidence','Solutions','Success criterion','Decision needed','Decision owner','Pertinent notes']:
-            if row[label]: st.write(f'**{label}:** {row[label]}')
-        for label in ['Date identified','Target resolution','Decision due','Last updated']:
-            if pd.notna(row[label]): st.write(f'**{label}:** {row[label]:%d %b %Y}')
-        if row['Data gaps']: st.warning(row['Data gaps'])
-        one = pd.DataFrame([row])
-        st.write('**Actions**')
-        table(related(actions,one),['Action','Responsible','Status','Due date','Blocker','Pertinent notes'])
-        updates = related(tables['Updates'],one).sort_values('Date',ascending=False)
-        if len(updates):
-            st.write('**Update history**'); table(updates,['Date','Change type','Previous value','New value','Note'])
 
-active = selected[selected['Open']]
-scoped_actions = related(actions,selected)
-open_actions = scoped_actions[scoped_actions['Status'].ne('Done')]
-tabs = st.tabs(['Attention Now','All Issues','Actions & Owners','Patterns & Causes','Progress & History','Edit & Save'])
-with tabs[0]:
-    st.subheader('Where attention is needed')
-    metrics = [('Critical',int(active['Severity'].eq('Critical').sum())),('Overdue actions',int(open_actions['Overdue'].sum())),('Blocked',int(active['Status'].eq('Blocked').sum())),('Decisions',int(active['Decision pending'].sum())),('Unassigned',int(active['Responsible'].eq('').sum()))]
-    if 'focus' not in st.session_state: st.session_state.focus = 'All open'
-    for col,(label,value) in zip(st.columns(5),metrics):
-        col.metric(label,value)
-        if col.button('Show '+label.lower(),key=label,width='stretch'): st.session_state.focus=label
-    if st.button('Show all open issues'): st.session_state.focus='All open'
-    focus = st.session_state.focus
-    masks = {'Critical':active['Severity'].eq('Critical'),'Overdue actions':active['Overdue actions'].gt(0),'Blocked':active['Status'].eq('Blocked'),'Decisions':active['Decision pending'],'Unassigned':active['Responsible'].eq('')}
-    queue = active[masks[focus]] if focus in masks else active
-    queue = queue.sort_values(['Impact level','Overdue actions','Resolution overdue','Age (days)'],ascending=[False,False,False,False],na_position='last')
-    st.write(f'**Attention queue: {focus} ({len(queue)} issues)**')
-    st.caption('Ranked by severity, overdue action count, overdue resolution, then issue age. No hidden priority score.')
-    if queue.empty: st.success('No issues match this attention filter.')
-    for _,row in queue.iterrows(): card(row)
-    st.subheader('Decisions needed')
-    table(active[active['Decision pending']].sort_values('Decision due'),KEY+['Decision needed','Decision owner','Decision due'])
-    st.subheader('Information gaps')
-    table(selected[selected['Data gaps'].ne('')],KEY+['Status','Data gaps'])
-with tabs[1]:
-    st.subheader('Issue register')
-    table(selected,SCHEMA['Issues']+['Partner responsible','Special Ops responsible','Timing','Age (days)','Overdue actions','Attention reasons','Data gaps'])
-    # Export to Excel to preserve dates and avoid CSV formula interpretation.
-    export = {'Issues':selected[SCHEMA['Issues']], 'Actions':scoped_actions[SCHEMA['Actions']], 'Updates':related(tables['Updates'],selected)}
-    st.caption('This export is a separate report, not the source workbook. Use Edit & Save for changes to Dropbox.')
-    st.download_button('Export filtered report',workbook_bytes(export),'filtered_issues.xlsx')
-    if len(selected):
-        index = st.selectbox('Inspect an issue',list(selected.index),format_func=lambda n: ' / '.join(selected.loc[n,KEY]))
-        card(selected.loc[index])
-with tabs[2]:
-    st.subheader('Actions & owners')
-    owners = st.multiselect('Action owner',sorted(scoped_actions['Responsible'].unique()),format_func=lambda x: x or '(Unassigned)')
-    view = scoped_actions[scoped_actions['Responsible'].isin(owners)] if owners else scoped_actions
-    only_overdue = st.checkbox('Only overdue actions')
-    if only_overdue: view = view[view['Overdue']]
-    table(view.sort_values('Due date'),SCHEMA['Actions']+['Overdue','Days overdue'])
-    workload = view[view['Status'].ne('Done')].copy()
-    if len(workload):
-        workload['Responsible'] = workload['Responsible'].replace('','Unassigned')
-        chart(px.histogram(workload,x='Responsible',color='Status',title='Pending action workload',barmode='stack'))
-    gaps = scoped_actions[(scoped_actions['Status'].ne('Done') & (scoped_actions['Responsible'].eq('') | scoped_actions['Due date'].isna())) | (scoped_actions['Status'].eq('Done') & scoped_actions['Completed date'].isna())]
-    st.write('**Actions needing an owner, deadline, or completion date**')
-    table(gaps,SCHEMA['Actions'])
-    st.subheader('Shared blockers')
-    blocked = open_actions[open_actions['Blocker'].ne('')].copy()
-    st.caption('Use the same blocker wording on affected actions to reveal shared dependencies. This is a grouped dependency view, not an automatically inferred task network.')
-    if len(blocked):
-        for blocker, group in blocked.groupby('Blocker'):
-            with st.expander(f'{blocker} — {len(group)} actions / {len(group[KEY].drop_duplicates())} issues'):
-                table(group,KEY+['Action','Responsible','Due date'])
-    else: st.info('No recorded blockers.')
-with tabs[3]:
-    st.subheader('Patterns behind unresolved issues')
-    if active.empty: st.info('No open issues in the selected scope.')
+def labels(row):
+    status=row['Status'];severity=row['Severity']
+    colors={'Closed':('#dff3e6','#1c6037'),'Monitoring':('#e8edff','#404996'),'Blocked':('#ffe8db','#9c411c'),'In Progress':('#dff1f6','#20596b'),'New':('#e8edf0','#405461'),'Unreviewed':('#edf0f2','#536570')}
+    background,foreground=colors.get(status,('#edf0f2','#536570'))
+    result=f'<span class="issue-tag" style="background:{background};color:{foreground}">{escape(status)}</span>'
+    sc={'Critical':('#fde2e4','#992533'),'High':('#ffeddb','#8b4d16'),'Medium':('#fff5cb','#745d13'),'Low':('#e8f3e9','#386040'),'Unassessed':('#edf0f2','#536570')}
+    bg,fg=sc.get(severity,sc['Unassessed'])
+    result+=f'<span class="issue-tag" style="background:{bg};color:{fg}">{escape(severity)}</span>'
+    if row['Overdue actions']:result+=f'<span class="issue-tag" style="background:#fde2e4;color:#992533">{int(row["Overdue actions"])} overdue action(s)</span>'
+    st.markdown(result,unsafe_allow_html=True)
+
+
+def field(label,value):
+    if value and str(value).strip():
+        st.markdown('**'+label+'**')
+        st.text(str(value))
+
+
+def issue_details(row):
+    labels(row)
+    st.subheader(row['Topic'] or 'Issue')
+    st.caption(f"{row['Partner']} / {row['Project']}")
+    field('Problem',row['Problem'])
+    left,right=st.columns(2)
+    with left:
+        field('Root cause',row['Root cause'])
+        if row['Root cause confidence']:st.caption('Cause: '+row['Root cause confidence'])
+        field('Effects',row['Effects'])
+        field('Notes',row['Pertinent notes'])
+    with right:
+        field('Proposed solution',row['Solutions'])
+        field('Issue owner',row['Responsible'])
+        field('Partner responsible',row['Partner responsible'])
+        field('Special Ops responsible',row['Special Ops responsible'])
+        field('Timing',row['Timing'])
+        if pd.notna(row['Target resolution']): st.caption('Target resolution: '+date_label(row['Target resolution']))
+    with st.expander('More tracking details'):
+        for name in ['Success criterion','Decision needed','Decision owner']:field(name,row[name])
+        for name in ['Date identified','Decision due','Last updated','Resolution date']:
+            if pd.notna(row[name]):st.write(f'{name}: {date_label(row[name])}')
+    matched=related(actions,pd.DataFrame([row]))
+    if len(matched):
+        st.markdown('**Related actions**')
+        st.dataframe(matched[['Action','Responsible','Status','Due date','Blocker']],hide_index=True,width='stretch',column_config={'Due date':st.column_config.DateColumn(format='DD MMM YYYY')})
+
+
+def status_style(value):
+    colors={'Closed':'background-color:#dff3e6;color:#1c6037','Blocked':'background-color:#ffe8db;color:#9c411c','In Progress':'background-color:#dff1f6;color:#20596b','Monitoring':'background-color:#e8edff;color:#404996','Critical':'background-color:#fde2e4;color:#992533','High':'background-color:#ffeddb;color:#8b4d16'}
+    return colors.get(value,'')
+
+
+def reset_filters():
+    for name in ['filter_project','filter_status','filter_priority']:st.session_state[name]=[]
+    st.session_state.filter_partner='All partners'
+    st.session_state.filter_search=''
+
+
+all_tab,action_tab,edit_tab=st.tabs(['All Issues','Actions & Owners','Edit & Save'])
+with all_tab:
+    search_col,partner_col=st.columns([2,1])
+    search=search_col.text_input('Find an issue',placeholder='Search projects, problems, people or notes…',key='filter_search')
+    partner=partner_col.selectbox('Partner',['All partners']+PARTNERS,key='filter_partner')
+    with st.expander('More filters'):
+        a,b,c=st.columns(3)
+        projects=a.multiselect('Project',sorted(issues['Project'].unique()),key='filter_project')
+        statuses=b.multiselect('Status',sorted(issues['Status'].unique()),key='filter_status')
+        priorities=c.multiselect('Severity',sorted(issues['Severity'].unique()),key='filter_priority')
+        st.button('Clear filters',on_click=reset_filters)
+    selected=issues.copy()
+    if partner!='All partners':selected=selected[selected['Partner'].eq(partner)]
+    for col,values in [('Project',projects),('Status',statuses),('Severity',priorities)]:
+        if values:selected=selected[selected[col].isin(values)]
+    if search:
+        searchable=SCHEMA['Issues']+['Partner responsible','Special Ops responsible','Timing']
+        match=selected[searchable].fillna('').astype(str).apply(lambda c:c.str.contains(search,case=False,regex=False)).any(axis=1)
+        selected=selected[match]
+    m1,m2,m3=st.columns(3)
+    m1.metric('Issues shown',len(selected))
+    m2.metric('Open',int(selected['Open'].sum()))
+    m3.metric('Closed',int((~selected['Open']).sum()))
+    st.caption('Includes all statuses by default. Unreviewed issues count as open; Unassessed means severity has not been entered.')
+    display_col,download_col=st.columns([2,1])
+    mode=display_col.radio('View',['Table','Cards'],horizontal=True,key='issue_view')
+    scoped_actions=related(actions,selected)
+    report={'Issues':selected[SCHEMA['Issues']],'Actions':scoped_actions[SCHEMA['Actions']],'Updates':pd.DataFrame(columns=SCHEMA['Updates'])}
+    # Preserve original responsibility/timing fields in the downloadable read-only report.
+    from io import BytesIO
+    from openpyxl import load_workbook
+    output=BytesIO(workbook_bytes(report));export_wb=load_workbook(output);export_ws=export_wb['Issues']
+    for offset,name in enumerate(['Partner responsible','Special Ops responsible','Timing'],len(SCHEMA['Issues'])+1):
+        export_ws.cell(1,offset,name)
+        for r,v in enumerate(selected[name],2):
+            cell=export_ws.cell(r,offset,str(v));cell.data_type='s'
+    # History is kept in the source workbook, not presented in this simplified export.
+    del export_wb['Updates']
+    export_bytes=BytesIO();export_wb.save(export_bytes)
+    download_col.download_button('Download this list',export_bytes.getvalue(),'critical_issues_list.xlsx',mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    if selected.empty:st.info('No matching issues. Try another partner or clear the filters.')
+    elif mode=='Table':
+        full=st.checkbox('Show every spreadsheet field',value=False)
+        columns=['Partner','Project','Topic','Problem','Status','Responsible','Partner responsible','Special Ops responsible','Timing']
+        if full:columns=['Partner','Project','Topic','Root cause','Problem','Effects','Solutions','Responsible','Partner responsible','Special Ops responsible','Timing','Pertinent notes','Severity','Status','Target resolution','Decision needed','Decision owner','Decision due','Success criterion','Date identified','Last updated','Resolution date']
+        frame=selected[columns].reset_index(drop=True)
+        styled=frame.style.map(status_style,subset=[c for c in ['Status','Severity'] if c in frame])
+        signature=sha256(repr((snapshot['rev'],selected[KEY].values.tolist(),columns)).encode()).hexdigest()[:12]
+        st.caption('Click a row checkbox to read the full issue below. Column headings sort the list; the toolbar offers search and fullscreen.')
+        event=st.dataframe(styled,hide_index=True,width='stretch',height=460,on_select='rerun',selection_mode='single-row',key='issue_table_'+signature,column_config={
+            'Problem':st.column_config.TextColumn(width='large'),
+            'Responsible':st.column_config.TextColumn('Issue owner'),
+            'Pertinent notes':st.column_config.TextColumn('Notes',width='large'),
+            **{name:st.column_config.DateColumn(format='DD MMM YYYY') for name in ['Target resolution','Decision due','Date identified','Last updated','Resolution date']}})
+        rows=event.selection.rows
+        if rows and rows[0]<len(selected):
+            with st.container(border=True):issue_details(selected.iloc[rows[0]])
     else:
-        aged = active.dropna(subset=['Age (days)','Impact level'])
-        if len(aged):
-            fig = px.scatter(aged,x='Age (days)',y='Impact level',color='Status',hover_name='Issue',hover_data=['Partner','Project','Responsible'],title='Issue age versus impact')
-            fig.update_traces(marker=dict(size=14,opacity=.8))
-            fig.update_yaxes(tickvals=[1,2,3,4],ticktext=['Low','Medium','High','Critical'])
-            chart(fig)
-        st.caption(f"{len(active)-len(aged)} open issues lack an identification date or assessed severity and are excluded from the age plot.")
-        heat = pd.crosstab(active['Project'],active['Topic'].replace('','Unspecified'))
-        chart(px.imshow(heat,text_auto=True,aspect='auto',color_continuous_scale='Blues',title='Open issues by project and topic'))
-        causes = active.copy(); causes['Root cause']=causes['Root cause'].replace('','Not recorded')
-        chart(px.histogram(causes,y='Root cause',color='Root cause confidence',title='Root causes — suspected and confirmed'))
-with tabs[4]:
-    st.subheader('What changed?')
-    since = pd.Timestamp(st.date_input('Review changes since',value=(today-pd.Timedelta(days=7)).date(),max_value=today.date()))
-    updates = related(tables['Updates'],selected)
-    recent = updates[updates['Date'].between(since,today)].sort_values('Date',ascending=False)
-    table(recent,SCHEMA['Updates'])
-    st.caption('History records saves made through this app. Direct Excel edits are reflected after reload but are not automatically logged. Current sidebar filters also limit this history.')
-    st.write('**Newly identified issues in this review period**')
-    table(selected[selected['Date identified'].between(since,today)],KEY+['Severity','Responsible','Date identified'])
-    st.write('**Actions that became overdue during this review period**')
-    table(open_actions[open_actions['Due date'].ge(since-pd.Timedelta(days=1)) & open_actions['Due date'].lt(today)],KEY+['Action','Responsible','Due date'])
-    st.subheader('Opened versus resolved')
-    created = selected['Date identified'].dropna()
-    resolved = selected.loc[selected['Status'].eq('Closed'),'Resolution date'].dropna()
-    created = created[created.le(today)]; resolved = resolved[resolved.le(today)]
-    if len(created) or len(resolved):
-        starts = list(created)+list(resolved)
-        periods = pd.period_range(min(starts).to_period('M'),today.to_period('M'),freq='M')
-        counts = pd.DataFrame({'Opened':created.dt.to_period('M').value_counts().reindex(periods,fill_value=0),'Resolved':resolved.dt.to_period('M').value_counts().reindex(periods,fill_value=0)})
-        counts.index = counts.index.astype(str)
-        chart(px.bar(counts,barmode='group',labels={'index':'Month','value':'Issues','variable':'Event'}))
-    else: st.info('Add identification and resolution dates to see trends.')
-    st.caption('Monthly counts use identification dates and resolution dates of currently closed issues. Repeated reopen/close cycles appear in app history but are not separate lifecycle events in this chart.')
-    st.subheader('Solution effectiveness')
-    table(selected[selected['Status'].eq('Monitoring')],KEY+['Solutions','Success criterion','Responsible','Target resolution'])
-    reopened = updates[updates['Change type'].eq('Reopened') & updates['Date'].between(since,today)]
-    st.metric('Recorded reopenings in review period',len(reopened))
-    if len(reopened): table(reopened,SCHEMA['Updates'])
+        # One expandable card per issue. No text is cut off in the expanded detail.
+        columns=st.columns(2)
+        for idx,(_,row) in enumerate(selected.iterrows()):
+            with columns[idx%2]:
+                with st.container(border=True):
+                    st.markdown(f'<div class="issue-eyebrow">{escape(row["Partner"])} / {escape(row["Project"])}</div>',unsafe_allow_html=True)
+                    labels(row)
+                    st.subheader(row['Topic'] or 'Issue')
+                    st.text(row['Problem'])
+                    owner=row['Responsible'] or row['Partner responsible'] or 'Not yet assigned'
+                    st.caption('Owner' + ('' if row['Responsible'] else ' / partner contacts') + ': '+owner)
+                    if row['Timing']:st.caption('Timing: '+row['Timing'])
+                    with st.expander('Read full issue'):issue_details(row)
 
-with tabs[5]:
-    render_editor(parsed,store,snapshot,user,today)
+with action_tab:
+    st.subheader('Who is doing what?')
+    st.caption('Uses the partner, search and other filters from All Issues. Issue owners and action owners can be different people.')
+    owner_col,scope_col=st.columns(2)
+    owners=owner_col.multiselect('Action owner',sorted(scoped_actions['Responsible'].unique()),format_func=lambda x:x or 'Unassigned')
+    scope=scope_col.radio('Show actions',['All','Pending','Overdue'],horizontal=True)
+    view=scoped_actions.copy()
+    if owners:view=view[view['Responsible'].isin(owners)]
+    if scope=='Pending':view=view[view['Status'].ne('Done')]
+    if scope=='Overdue':view=view[view['Overdue']]
+    if view.empty:st.info('No actions match these filters.')
+    else:
+        view=view.sort_values('Due date',na_position='last')
+        view['Days overdue']=view['Days overdue'].where(view['Overdue'],0)
+        st.dataframe(view[['Partner','Project','Issue','Action','Responsible','Status','Due date','Blocker','Pertinent notes','Days overdue']],hide_index=True,width='stretch',column_config={'Due date':st.column_config.DateColumn(format='DD MMM YYYY'),'Action':st.column_config.TextColumn(width='large'),'Responsible':st.column_config.TextColumn('Action owner')})
+        with st.expander('Group pending actions by owner'):
+            pending=view[view['Status'].ne('Done')]
+            for owner,group in pending.groupby('Responsible',dropna=False):
+                st.markdown('**'+(owner or 'Unassigned')+f' ({len(group)})**')
+                st.dataframe(group[['Project','Action','Status','Due date','Blocker']],hide_index=True,width='stretch')
+
+with edit_tab:
+    render_editor(parsed,store,snapshot,today)
