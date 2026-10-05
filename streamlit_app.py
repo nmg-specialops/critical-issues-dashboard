@@ -1,4 +1,5 @@
 """Public issues register with an optional card view and protected editing."""
+import re
 from datetime import datetime
 from html import escape
 from hashlib import sha256
@@ -241,7 +242,7 @@ h1,h2,h3 {letter-spacing:-.03em;}
 .issue-tag {display:inline-block;border-radius:20px;padding:4px 11px;margin:0 5px 7px 0;font-size:12px;font-weight:600;}
 .issue-eyebrow {font-size:12px;font-weight:650;letter-spacing:.06em;color:#52727c;text-transform:uppercase;margin:5px 0 10px;}
 </style>''',unsafe_allow_html=True)
-st.markdown('<h1 style="color:#167D8D;">Critical issues, clearly.</h1>', unsafe_allow_html=True)
+st.title('Critical issues, clearly.')
 st.caption('One shared view of the problems, people and next steps for priority topics with partners across Special Ops.')
 try: today=pd.Timestamp(datetime.now(ZoneInfo(setting('TIMEZONE','America/Los_Angeles'))).date())
 except Exception: st.error('Set a valid TIMEZONE in Streamlit Secrets.');st.stop()
@@ -345,26 +346,42 @@ def status_style(value):
 
 
 def reset_filters():
-    for name in ['filter_project','filter_status','filter_priority']:st.session_state[name]=[]
+    for name in ['filter_project','filter_status','filter_partner_responsible','filter_special_ops_responsible']:st.session_state[name]=[]
     st.session_state.filter_partner='All partners'
     st.session_state.filter_search=''
 
 
-all_tab,action_tab,edit_tab=st.tabs(['All Issues','Actions & Owners','Edit & Save'])
+def responsible_names(value):
+    if pd.isna(value):
+        return []
+    # Split shared assignments into individual selectable names.
+    return [name for part in re.split(r'[,;\n/&]+|\s+and\s+', str(value), flags=re.I)
+            if (name := part.strip().rstrip('.…').strip())]
+
+
+def responsible_options(column):
+    return sorted({name for value in issues[column] for name in responsible_names(value)}, key=str.casefold)
+
+
+all_tab,edit_tab=st.tabs(['All Issues','Edit & Save'])
 with all_tab:
     search_col,partner_col=st.columns([2,1])
     search=search_col.text_input('Find an issue',placeholder='Search projects, problems, people or notes…',key='filter_search')
     partner=partner_col.selectbox('Partner',['All partners']+PARTNERS,key='filter_partner')
     with st.expander('More filters'):
-        a,b,c=st.columns(3)
+        a,b=st.columns(2)
         projects=a.multiselect('Project',sorted(issues['Project'].unique()),key='filter_project')
         statuses=b.multiselect('Status',sorted(issues['Status'].unique()),key='filter_status')
-        priorities=c.multiselect('Severity',sorted(issues['Severity'].unique()),key='filter_priority')
+        partner_owners=a.multiselect('Partner responsible',responsible_options('Partner responsible'),key='filter_partner_responsible')
+        special_ops_owners=b.multiselect('Special Ops responsible',responsible_options('Special Ops responsible'),key='filter_special_ops_responsible')
         st.button('Clear filters',on_click=reset_filters)
     selected=issues.copy()
     if partner!='All partners':selected=selected[selected['Partner'].eq(partner)]
-    for col,values in [('Project',projects),('Status',statuses),('Severity',priorities)]:
+    for col,values in [('Project',projects),('Status',statuses)]:
         if values:selected=selected[selected[col].isin(values)]
+    for col,values in [('Partner responsible',partner_owners),('Special Ops responsible',special_ops_owners)]:
+        if values:
+            selected=selected[selected[col].apply(lambda value: bool(set(responsible_names(value)) & set(values)))]
     if search:
         searchable=SCHEMA['Issues']+['Partner responsible','Special Ops responsible','Timing']
         match=selected[searchable].fillna('').astype(str).apply(lambda c:c.str.contains(search,case=False,regex=False)).any(axis=1)
@@ -416,27 +433,6 @@ with all_tab:
                     st.caption('Owner' + ('' if row['Responsible'] else ' / partner contacts') + ': '+owner)
                     if row['Timing']:st.caption('Timing: '+row['Timing'])
                     with st.expander('Read full issue'):issue_details(row)
-
-with action_tab:
-    st.subheader('Who is doing what?')
-    st.caption('Uses the partner, search and other filters from All Issues. Issue owners and action owners can be different people.')
-    owner_col,scope_col=st.columns(2)
-    owners=owner_col.multiselect('Action owner',sorted(scoped_actions['Responsible'].unique()),format_func=lambda x:x or 'Unassigned')
-    scope=scope_col.radio('Show actions',['All','Pending','Overdue'],horizontal=True)
-    view=scoped_actions.copy()
-    if owners:view=view[view['Responsible'].isin(owners)]
-    if scope=='Pending':view=view[view['Status'].ne('Done')]
-    if scope=='Overdue':view=view[view['Overdue']]
-    if view.empty:st.info('No actions match these filters.')
-    else:
-        view=view.sort_values('Due date',na_position='last')
-        view['Days overdue']=view['Days overdue'].where(view['Overdue'],0)
-        st.dataframe(view[['Partner','Project','Issue','Action','Responsible','Status','Due date','Blocker','Pertinent notes','Days overdue']],hide_index=True,width='stretch',column_config={'Due date':st.column_config.DateColumn(format='DD MMM YYYY'),'Action':st.column_config.TextColumn(width='large'),'Responsible':st.column_config.TextColumn('Action owner')})
-        with st.expander('Group pending actions by owner'):
-            pending=view[view['Status'].ne('Done')]
-            for owner,group in pending.groupby('Responsible',dropna=False):
-                st.markdown('**'+(owner or 'Unassigned')+f' ({len(group)})**')
-                st.dataframe(group[['Project','Action','Status','Due date','Blocker']],hide_index=True,width='stretch')
 
 with edit_tab:
     render_editor(parsed,store,snapshot,today)
