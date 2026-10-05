@@ -4,6 +4,7 @@ import pandas as pd
 import streamlit as st
 from workbook_model import (PARTNERS,META,DETAIL_COLS,EXTRA_COLS,NATURAL,ISSUE_STATUSES,SEVERITIES,ACTION_STATUSES,patch_issue,add_action,add_issue,text)
 from workbook_store import ConflictError,UnknownSaveError,StoreError
+from auth import current_user,editor_login
 
 
 def date_value(v): return pd.Timestamp(v).date() if v is not None and text(v) else None
@@ -11,7 +12,8 @@ def date_value(v): return pd.Timestamp(v).date() if v is not None and text(v) el
 
 def commit(builder,store,snapshot,user):
     # Recheck authorization in the write path, not just the visibility of the editor.
-    if st.secrets.get('users',{}).get(user['username'],{}).get('role')!='editor':
+    authenticated=current_user()
+    if not authenticated or authenticated['role']!='editor' or not user or authenticated['username']!=user['username']:
         st.error('Your account does not have edit permission.');return
     if st.session_state.get('save_blocked'):
         st.error('Reload the workbook before another save. Download your draft first.');return
@@ -26,7 +28,7 @@ def commit(builder,store,snapshot,user):
         st.error(str(exc));return
     except Exception:
         st.session_state.save_blocked=True
-        st.error('Save could not be confirmed. Download your draft if available, then reload and check History before retrying.');return
+        st.error('Save could not be confirmed. Download your draft if available, then reload and check Dashboard History in Excel before retrying.');return
     st.session_state.snapshot=new_snapshot
     st.session_state.pop('pending_draft',None)
     st.session_state.pop('save_blocked',None)
@@ -71,7 +73,9 @@ def action_form(key):
             'Pertinent notes':st.text_area('Action notes',key=key+'notes')}
 
 
-def render(parsed,store,snapshot,user,today):
+def render(parsed,store,snapshot,today):
+    user=editor_login()
+    if user is None: return
     st.subheader('Update the source workbook')
     if user['role']!='editor': st.info('Your account has view-only access.');return
     if store is None: st.info('Dropbox editing is not connected. Add the Dropbox credentials to Streamlit Secrets using README.md.');return
