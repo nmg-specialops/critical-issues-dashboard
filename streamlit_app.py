@@ -1,4 +1,6 @@
 """Public issues register with an optional card view and protected editing."""
+from pathlib import Path
+import base64
 from datetime import datetime
 from html import escape
 from hashlib import sha256
@@ -13,7 +15,7 @@ from workbook_store import DropboxStore,StoreError,DEFAULT_LINK,MAX_BYTES
 
 APP_VERSION = "Cards-first · 2026-10-05.2"
 
-"""Small internal-app login with salted password hashes and explicit viewer/editor roles."""
+# Internal login helpers with viewer/editor roles.
 import hashlib
 import hmac
 import secrets
@@ -94,7 +96,7 @@ def editor_login():
     return None
 
 
-"""Explicit-save forms for partner issue cells and additional actions."""
+# Forms for editing and saving partner issues.
 from datetime import datetime, timezone
 import pandas as pd
 import streamlit as st
@@ -241,6 +243,17 @@ h1,h2,h3 {letter-spacing:-.03em;}
 .issue-tag {display:inline-block;border-radius:20px;padding:4px 11px;margin:0 5px 7px 0;font-size:12px;font-weight:600;}
 .issue-eyebrow {font-size:12px;font-weight:650;letter-spacing:.06em;color:#52727c;text-transform:uppercase;margin:5px 0 10px;}
 </style>''',unsafe_allow_html=True)
+# Optional local artwork keeps the dashboard independent of image hosting.
+banner_path = Path(__file__).with_name("dashboard_banner.png")
+if banner_path.is_file():
+    banner_data = base64.b64encode(banner_path.read_bytes()).decode("ascii")
+    st.markdown(
+        '<div style="background:#faf7ef;border-radius:16px;overflow:hidden;margin-bottom:16px;">'
+        f'<img src="data:image/png;base64,{banner_data}" alt="Partners collaborating on shared priorities" '
+        'style="display:block;width:100%;height:180px;object-fit:contain;" /></div>',
+        unsafe_allow_html=True,
+    )
+
 st.title('Critical issues, clearly.')
 st.caption('One shared view of the problems, people and next steps for priority topics with partners across Special Ops.')
 try: today=pd.Timestamp(datetime.now(ZoneInfo(setting('TIMEZONE','America/Los_Angeles'))).date())
