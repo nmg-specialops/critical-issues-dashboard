@@ -242,7 +242,7 @@ h1,h2,h3 {letter-spacing:-.03em;}
 .issue-eyebrow {font-size:12px;font-weight:650;letter-spacing:.06em;color:#52727c;text-transform:uppercase;margin:5px 0 10px;}
 </style>''',unsafe_allow_html=True)
 st.title('Critical issues, clearly.')
-st.caption('One shared view of the problems, people and next steps across Special Ops.')
+st.caption('One shared view of the problems, people and next steps for priority topics with partners across Special Ops.')
 try: today=pd.Timestamp(datetime.now(ZoneInfo(setting('TIMEZONE','America/Los_Angeles'))).date())
 except Exception: st.error('Set a valid TIMEZONE in Streamlit Secrets.');st.stop()
 config=dict(setting('dropbox',{}))
@@ -389,15 +389,14 @@ with all_tab:
     if selected.empty:st.info('No matching issues. Try another partner or clear the filters.')
     elif mode=='Table':
         full=st.checkbox('Show every spreadsheet field',value=False)
-        columns=['Partner','Project','Topic','Problem','Status','Responsible','Partner responsible','Special Ops responsible','Timing']
-        if full:columns=['Partner','Project','Topic','Root cause','Problem','Effects','Solutions','Responsible','Partner responsible','Special Ops responsible','Timing','Pertinent notes','Severity','Status','Target resolution','Decision needed','Decision owner','Decision due','Success criterion','Date identified','Last updated','Resolution date']
+        columns=['Partner','Project','Topic','Problem','Status','Partner responsible','Special Ops responsible','Timing']
+        if full:columns=['Partner','Project','Topic','Root cause','Problem','Effects','Solutions','Partner responsible','Special Ops responsible','Timing','Pertinent notes','Severity','Status','Target resolution','Decision needed','Decision owner','Decision due','Success criterion','Date identified','Last updated','Resolution date']
         frame=selected[columns].reset_index(drop=True)
         styled=frame.style.map(status_style,subset=[c for c in ['Status','Severity'] if c in frame])
         signature=sha256(repr((snapshot['rev'],selected[KEY].values.tolist(),columns)).encode()).hexdigest()[:12]
         st.caption('Click a row checkbox to read the full issue below. Column headings sort the list; the toolbar offers search and fullscreen.')
         event=st.dataframe(styled,hide_index=True,width='stretch',height=460,on_select='rerun',selection_mode='single-row',key='issue_table_'+signature,column_config={
             'Problem':st.column_config.TextColumn(width='large'),
-            'Responsible':st.column_config.TextColumn('Issue owner'),
             'Pertinent notes':st.column_config.TextColumn('Notes',width='large'),
             **{name:st.column_config.DateColumn(format='DD MMM YYYY') for name in ['Target resolution','Decision due','Date identified','Last updated','Resolution date']}})
         rows=event.selection.rows
