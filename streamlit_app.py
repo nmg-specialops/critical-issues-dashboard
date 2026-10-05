@@ -1,6 +1,4 @@
 """Public issues register with an optional card view and protected editing."""
-from pathlib import Path
-import base64
 from datetime import datetime
 from html import escape
 from hashlib import sha256
@@ -15,7 +13,7 @@ from workbook_store import DropboxStore,StoreError,DEFAULT_LINK,MAX_BYTES
 
 APP_VERSION = "Cards-first · 2026-10-05.2"
 
-# Internal login helpers with viewer/editor roles.
+"""Small internal-app login with salted password hashes and explicit viewer/editor roles."""
 import hashlib
 import hmac
 import secrets
@@ -96,7 +94,7 @@ def editor_login():
     return None
 
 
-# Forms for editing and saving partner issues.
+"""Explicit-save forms for partner issue cells and additional actions."""
 from datetime import datetime, timezone
 import pandas as pd
 import streamlit as st
@@ -243,26 +241,8 @@ h1,h2,h3 {letter-spacing:-.03em;}
 .issue-tag {display:inline-block;border-radius:20px;padding:4px 11px;margin:0 5px 7px 0;font-size:12px;font-weight:600;}
 .issue-eyebrow {font-size:12px;font-weight:650;letter-spacing:.06em;color:#52727c;text-transform:uppercase;margin:5px 0 10px;}
 </style>''',unsafe_allow_html=True)
-banner_path = Path(__file__).with_name("dashboard_banner.png")
-banner_html = ""
-if banner_path.is_file():
-    banner_data = base64.b64encode(banner_path.read_bytes()).decode("ascii")
-    banner_html = f'<img class="header-art" src="data:image/png;base64,{banner_data}" alt="" />'
-st.markdown(
-    """<style>
-    .issues-header {display:flex;align-items:center;justify-content:space-between;gap:24px;margin-bottom:20px;}
-    .issues-header-text {flex:1;min-width:0;}
-    .issues-header h1 {color:#167D8D;margin:0;padding:0 0 10px;}
-    .issues-header p {font-size:14px;opacity:.7;margin:0;line-height:1.5;}
-    .header-art {width:30%;max-width:340px;max-height:114px;object-fit:contain;border-radius:12px;flex-shrink:0;}
-    @media (max-width:700px) {.header-art {display:none;}}
-    </style>"""
-    + '<div class="issues-header"><div class="issues-header-text">'
-    + '<h1>Critical issues, clearly.</h1>'
-    + '<p>One shared view of the problems, people and next steps for priority topics with partners across Special Ops.</p>'
-    + '</div>' + banner_html + '</div>',
-    unsafe_allow_html=True,
-)
+st.title('Critical issues, clearly.')
+st.caption('One shared view of the problems, people and next steps for priority topics with partners across Special Ops.')
 try: today=pd.Timestamp(datetime.now(ZoneInfo(setting('TIMEZONE','America/Los_Angeles'))).date())
 except Exception: st.error('Set a valid TIMEZONE in Streamlit Secrets.');st.stop()
 config=dict(setting('dropbox',{}))
