@@ -13,7 +13,7 @@ from workbook_store import DropboxStore,StoreError,DEFAULT_LINK,MAX_BYTES
 
 APP_VERSION = "Cards-first · 2026-10-05.2"
 
-"""Small internal-app login with salted password hashes and explicit viewer/editor roles."""
+# Internal login helpers with viewer/editor roles.
 import hashlib
 import hmac
 import secrets
@@ -94,7 +94,7 @@ def editor_login():
     return None
 
 
-"""Explicit-save forms for partner issue cells and additional actions."""
+# Forms for editing and saving partner issues.
 from datetime import datetime, timezone
 import pandas as pd
 import streamlit as st
@@ -241,7 +241,7 @@ h1,h2,h3 {letter-spacing:-.03em;}
 .issue-tag {display:inline-block;border-radius:20px;padding:4px 11px;margin:0 5px 7px 0;font-size:12px;font-weight:600;}
 .issue-eyebrow {font-size:12px;font-weight:650;letter-spacing:.06em;color:#52727c;text-transform:uppercase;margin:5px 0 10px;}
 </style>''',unsafe_allow_html=True)
-st.title('Critical issues, clearly.')
+st.markdown('<h1 style="color:#167D8D;">Critical issues, clearly.</h1>', unsafe_allow_html=True)
 st.caption('One shared view of the problems, people and next steps for priority topics with partners across Special Ops.')
 try: today=pd.Timestamp(datetime.now(ZoneInfo(setting('TIMEZONE','America/Los_Angeles'))).date())
 except Exception: st.error('Set a valid TIMEZONE in Streamlit Secrets.');st.stop()
