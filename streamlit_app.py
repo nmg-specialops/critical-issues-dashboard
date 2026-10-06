@@ -1,4 +1,4 @@
-"""Public issues register with an optional card view and protected editing."""
+"""Public issues register with an optional card view and open editing."""
 import re
 from datetime import datetime
 from html import escape
@@ -12,87 +12,11 @@ from workbook_model import read,PARTNERS
 from workbook_store import DropboxStore,StoreError,DEFAULT_LINK,MAX_BYTES
 
 
-APP_VERSION = "Cards-first · 2026-10-05.2"
-
-# Internal login helpers with viewer/editor roles.
-import hashlib
-import hmac
-import secrets
-import time
-import streamlit as st
-
-
-def hash_password(password):
-    salt=secrets.token_hex(16)
-    digest=hashlib.pbkdf2_hmac('sha256',password.encode(),salt.encode(),600000).hex()
-    return f'pbkdf2_sha256$600000${salt}${digest}'
-
-
-def verify_password(password,encoded):
-    try:
-        algorithm,rounds,salt,expected=encoded.split('$')
-        if algorithm!='pbkdf2_sha256': return False
-        actual=hashlib.pbkdf2_hmac('sha256',password.encode(),salt.encode(),int(rounds)).hex()
-        return hmac.compare_digest(actual,expected)
-    except (ValueError,TypeError): return False
-
+APP_VERSION = "Open editing · 2026-10-06"
 
 def setting(key, default=None):
     try: return st.secrets.get(key, default)
     except FileNotFoundError: return default
-
-
-def current_user():
-    """Return a currently authenticated user; never stop public rendering."""
-    username=st.session_state.get('signed_in_user')
-    record=setting('users',{}).get(username,{}) if username else {}
-    encoded=record.get('password_hash','')
-    fingerprint=hashlib.sha256(encoded.encode()).hexdigest()
-    if encoded and st.session_state.get('credential_fingerprint')==fingerprint:
-        return {'username':username,'name':record.get('name',username),'role':record.get('role','viewer')}
-    st.session_state.pop('signed_in_user',None)
-    st.session_state.pop('credential_fingerprint',None)
-    return None
-
-
-def logout():
-    # Discard editor drafts/widgets but keep the public workbook ready to browse.
-    snapshot=st.session_state.get('snapshot')
-    st.session_state.clear()
-    if snapshot is not None: st.session_state.snapshot=snapshot
-
-
-def editor_login():
-    """Only called inside Edit & Save. Returns None until sign-in succeeds."""
-    user=current_user()
-    if user:
-        st.caption(f"Signed in as {user['name']}")
-        if st.button('Sign out of editing',key='editor_logout'):
-            logout();st.rerun()
-        return user
-    st.subheader('Sign in to edit')
-    st.caption('Everyone can browse the issues and actions. An editor account is needed to change the spreadsheet.')
-    users=setting('users',{})
-    if not users:
-        st.info('Editor accounts have not been configured. Viewing remains available. Add the existing user settings to Streamlit Secrets to enable editing.')
-        return None
-    with st.form('editor_login',clear_on_submit=True):
-        username=st.text_input('Username').strip().lower()
-        password=st.text_input('Password',type='password')
-        submit=st.form_submit_button('Sign in to edit')
-    if submit:
-        if time.time()<st.session_state.get('login_after',0):
-            st.error('Please wait briefly before trying again.');return None
-        record=users.get(username,{})
-        if verify_password(password,record.get('password_hash','')):
-            st.session_state.signed_in_user=username
-            st.session_state.credential_fingerprint=hashlib.sha256(record['password_hash'].encode()).hexdigest()
-            st.session_state.pop('login_after',None)
-            st.rerun()
-        else:
-            st.session_state.login_after=time.time()+3
-            st.error('Username or password was not recognized.')
-    return None
 
 
 # Forms for editing and saving partner issues.
@@ -107,10 +31,6 @@ def date_value(v): return pd.Timestamp(v).date() if v is not None and text(v) el
 
 
 def commit(builder,store,snapshot,user):
-    # Recheck authorization in the write path, not just the visibility of the editor.
-    authenticated=current_user()
-    if not authenticated or authenticated['role']!='editor' or not user or authenticated['username']!=user['username']:
-        st.error('Your account does not have edit permission.');return
     if st.session_state.get('save_blocked'):
         st.error('Reload the workbook before another save. Download your draft first.');return
     try:
@@ -170,12 +90,11 @@ def action_form(key):
 
 
 def render_editor(parsed,store,snapshot,today):
-    user=editor_login()
-    if user is None: return
+    user={"username":"Anonymous editor"}
     st.subheader('Update the source workbook')
-    if user['role']!='editor': st.info('Your account has view-only access.');return
     if store is None: st.info('Dropbox editing is not connected. Add the Dropbox credentials to Streamlit Secrets using README.md.');return
     st.caption('Edits stay in the form until Save to Dropbox is pressed. Refreshing, switching issues, or leaving the page can discard unsaved form input. Save one form at a time. Original Overview is never edited.')
+    st.caption('Changes saved here are recorded in the workbook’s Dashboard History sheet as Anonymous editor. No sign-in is required.')
     now=lambda:datetime.now(timezone.utc)
     issues=parsed['tables']['Issues']
     choice=st.radio('What would you like to do?',['Edit existing issue','Add issue'],horizontal=True)
