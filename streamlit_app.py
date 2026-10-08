@@ -12,7 +12,7 @@ from workbook_model import read,PARTNERS
 from workbook_store import DropboxStore,StoreError,DEFAULT_LINK,MAX_BYTES
 
 
-APP_VERSION = "Open editing · 2026-10-06"
+APP_VERSION = "Table-first · 2026-10-08"
 
 def setting(key, default=None):
     try: return st.secrets.get(key, default)
@@ -264,94 +264,39 @@ def status_style(value):
     return colors.get(value,'')
 
 
-def reset_filters():
-    for name in ['filter_project','filter_status','filter_partner_responsible','filter_special_ops_responsible']:st.session_state[name]=[]
-    st.session_state.filter_partner='All partners'
-    st.session_state.filter_search=''
 
+mode=st.radio('View',['Table','Compact cards'],index=0,horizontal=True,key='view_table_first_20261008')
+if issues.empty:
+    st.info('No issues have been added yet.')
+elif mode=='Table':
+    # Plain HTML keeps the source order and prevents sorting or dragging columns.
+    columns=['Partner','Project','Topic','Root cause','Problem','Effects','Solutions','Partner responsible','Special Ops responsible','Timing','Pertinent notes','Status']
+    header=''.join('<th scope="col">'+escape(name)+'</th>' for name in columns)
+    rows=[]
+    for _,row in issues.iterrows():
+        cells=''.join('<td>'+escape('' if pd.isna(row[name]) else str(row[name]))+'</td>' for name in columns)
+        rows.append('<tr>'+cells+'</tr>')
+    st.markdown(
+        '<style>.fixed-issues-wrap{overflow-x:auto;width:100%;}'
+        '.fixed-issues{border-collapse:collapse;table-layout:fixed;width:100%;min-width:1650px;font-size:13px;}'
+        '.fixed-issues th,.fixed-issues td{border:1px solid #d5dce0;padding:10px;text-align:left;vertical-align:top;white-space:pre-wrap;overflow-wrap:anywhere;}'
+        '.fixed-issues th{background:#edf1f3;color:#25343b;font-weight:600;}'
+        '.fixed-issues th:nth-child(5),.fixed-issues th:nth-child(7){width:190px;}'
+        '</style><div class="fixed-issues-wrap"><table class="fixed-issues" aria-label="All critical issues">'
+        '<thead><tr>'+header+'</tr></thead><tbody>'+''.join(rows)+'</tbody></table></div>',
+        unsafe_allow_html=True,
+    )
+else:
+    # Slim full-width rows, grouped by topic, expand to the complete issue.
+    topic_order=issues['Topic'].fillna('').replace('', 'Other topics')
+    for topic in sorted(topic_order.unique(),key=str.casefold):
+        st.markdown('**'+escape(topic)+'**')
+        for _,row in issues[topic_order.eq(topic)].iterrows():
+            problem=' '.join(str(row['Problem']).split())
+            summary=problem if len(problem)<=110 else problem[:107]+'…'
+            label=f"{row['Partner']} · {row['Project']} | {summary} | {row['Status']}"
+            with st.expander(label):
+                issue_details(row)
 
-def responsible_names(value):
-    if pd.isna(value):
-        return []
-    # Split shared assignments into individual selectable names.
-    return [name for part in re.split(r'[,;\n/&]+|\s+and\s+', str(value), flags=re.I)
-            if (name := part.strip().rstrip('.…').strip())]
-
-
-def responsible_options(column):
-    return sorted({name for value in issues[column] for name in responsible_names(value)}, key=str.casefold)
-
-
-all_tab,edit_tab=st.tabs(['All Issues','Edit & Save'])
-with all_tab:
-    search_col,partner_col=st.columns([2,1])
-    search=search_col.text_input('Find an issue',placeholder='Search projects, problems, people or notes…',key='filter_search')
-    partner=partner_col.selectbox('Partner',['All partners']+PARTNERS,key='filter_partner')
-    with st.expander('More filters'):
-        a,b=st.columns(2)
-        projects=a.multiselect('Project',sorted(issues['Project'].unique()),key='filter_project')
-        statuses=b.multiselect('Status',sorted(issues['Status'].unique()),key='filter_status')
-        partner_owners=a.multiselect('Partner responsible',responsible_options('Partner responsible'),key='filter_partner_responsible')
-        special_ops_owners=b.multiselect('Special Ops responsible',responsible_options('Special Ops responsible'),key='filter_special_ops_responsible')
-        st.button('Clear filters',on_click=reset_filters)
-    selected=issues.copy()
-    if partner!='All partners':selected=selected[selected['Partner'].eq(partner)]
-    for col,values in [('Project',projects),('Status',statuses)]:
-        if values:selected=selected[selected[col].isin(values)]
-    for col,values in [('Partner responsible',partner_owners),('Special Ops responsible',special_ops_owners)]:
-        if values:
-            selected=selected[selected[col].apply(lambda value: bool(set(responsible_names(value)) & set(values)))]
-    if search:
-        searchable=SCHEMA['Issues']+['Partner responsible','Special Ops responsible','Timing']
-        match=selected[searchable].fillna('').astype(str).apply(lambda c:c.str.contains(search,case=False,regex=False)).any(axis=1)
-        selected=selected[match]
-    st.caption('Includes all statuses by default. Unreviewed issues count as open; Unassessed means severity has not been entered.')
-    display_col,download_col=st.columns([2,1])
-    mode=display_col.radio('View',['Cards','Table'],index=0,horizontal=True,key='view_cards_20261005_2')
-    scoped_actions=related(actions,selected)
-    report={'Issues':selected[SCHEMA['Issues']],'Actions':scoped_actions[SCHEMA['Actions']],'Updates':pd.DataFrame(columns=SCHEMA['Updates'])}
-    # Preserve original responsibility/timing fields in the downloadable read-only report.
-    from io import BytesIO
-    from openpyxl import load_workbook
-    output=BytesIO(workbook_bytes(report));export_wb=load_workbook(output);export_ws=export_wb['Issues']
-    for offset,name in enumerate(['Partner responsible','Special Ops responsible','Timing'],len(SCHEMA['Issues'])+1):
-        export_ws.cell(1,offset,name)
-        for r,v in enumerate(selected[name],2):
-            cell=export_ws.cell(r,offset,str(v));cell.data_type='s'
-    # History is kept in the source workbook, not presented in this simplified export.
-    del export_wb['Updates']
-    export_bytes=BytesIO();export_wb.save(export_bytes)
-    download_col.download_button('Download this list',export_bytes.getvalue(),'critical_issues_list.xlsx',mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-    if selected.empty:st.info('No matching issues. Try another partner or clear the filters.')
-    elif mode=='Table':
-        full=st.checkbox('Show every spreadsheet field',value=False)
-        columns=['Partner','Project','Topic','Problem','Status','Partner responsible','Special Ops responsible','Timing']
-        if full:columns=['Partner','Project','Topic','Root cause','Problem','Effects','Solutions','Partner responsible','Special Ops responsible','Timing','Pertinent notes','Severity','Status','Target resolution','Decision needed','Decision owner','Decision due','Success criterion','Date identified','Last updated','Resolution date']
-        frame=selected[columns].reset_index(drop=True)
-        styled=frame.style.map(status_style,subset=[c for c in ['Status','Severity'] if c in frame])
-        signature=sha256(repr((snapshot['rev'],selected[KEY].values.tolist(),columns)).encode()).hexdigest()[:12]
-        st.caption('Click a row checkbox to read the full issue below. Column headings sort the list; the toolbar offers search and fullscreen.')
-        event=st.dataframe(styled,hide_index=True,width='stretch',height=460,on_select='rerun',selection_mode='single-row',key='issue_table_'+signature,column_config={
-            'Problem':st.column_config.TextColumn(width='large'),
-            'Pertinent notes':st.column_config.TextColumn('Notes',width='large'),
-            **{name:st.column_config.DateColumn(format='DD MMM YYYY') for name in ['Target resolution','Decision due','Date identified','Last updated','Resolution date']}})
-        rows=event.selection.rows
-        if rows and rows[0]<len(selected):
-            with st.container(border=True):issue_details(selected.iloc[rows[0]])
-    else:
-        # One expandable card per issue. No text is cut off in the expanded detail.
-        columns=st.columns(2)
-        for idx,(_,row) in enumerate(selected.iterrows()):
-            with columns[idx%2]:
-                with st.container(border=True):
-                    st.markdown(f'<div class="issue-eyebrow">{escape(row["Partner"])} / {escape(row["Project"])}</div>',unsafe_allow_html=True)
-                    labels(row)
-                    st.subheader(row['Topic'] or 'Issue')
-                    st.text(row['Problem'])
-                    owner=row['Responsible'] or row['Partner responsible'] or 'Not yet assigned'
-                    st.caption('Owner' + ('' if row['Responsible'] else ' / partner contacts') + ': '+owner)
-                    if row['Timing']:st.caption('Timing: '+row['Timing'])
-                    with st.expander('Read full issue'):issue_details(row)
-
-with edit_tab:
-    render_editor(parsed,store,snapshot,today)
+st.divider()
+render_editor(parsed,store,snapshot,today)
