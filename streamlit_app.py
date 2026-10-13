@@ -16,18 +16,23 @@ st.markdown('''<style>
 .block-container{max-width:1900px;padding:2rem 1.5rem 3rem;}
 h1,h2,h3{letter-spacing:-.025em;}
 .partner-table-wrap{overflow-x:auto;margin-bottom:24px;}
-.partner-table{width:100%;min-width:1400px;border-collapse:collapse;table-layout:fixed;font-size:13px;}
+.partner-table{width:100%;min-width:1280px;border-collapse:collapse;table-layout:fixed;font-size:13px;}
 .partner-table th,.partner-table td{padding:9px;border:1px solid #d9dfe3;text-align:left;vertical-align:top;white-space:pre-wrap;overflow-wrap:anywhere;}
 .partner-table th{background:#edf1f3;color:#25343b;}
 .partner-table .project-row td{background:#e8eef0;color:#263c45;font-size:15px;font-weight:650;}
-.partner-table th:nth-child(7),.partner-table th:nth-child(8){width:112px;box-sizing:border-box;}
-.partner-table tbody tr:not(.project-row) td:nth-child(7),.partner-table tbody tr:not(.project-row) td:nth-child(8){white-space:nowrap;overflow-wrap:normal;}
-.notes-cell summary{cursor:pointer;display:flex;align-items:center;gap:6px;list-style:none;white-space:normal;}
+.partner-table th:nth-child(7),.partner-table th:nth-child(8){width:94px;box-sizing:border-box;padding:6px;font-size:12px;}
+.partner-table tbody tr:not(.project-row) td:nth-child(7),.partner-table tbody tr:not(.project-row) td:nth-child(8){white-space:nowrap;overflow-wrap:normal;padding:6px;font-size:12px;}
+.partner-table td.notes-column{position:relative;}
+.notes-cell{position:absolute;inset:9px;overflow:hidden;}
+.notes-cell summary{cursor:pointer;display:block;height:100%;box-sizing:border-box;padding-bottom:16px;list-style:none;white-space:normal;}
 .notes-cell summary::-webkit-details-marker{display:none;}
-.notes-preview{display:block;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-.notes-cell summary::after{content:"▸";flex:none;color:#246773;}
+.notes-preview{display:block;height:100%;overflow:hidden;white-space:pre-wrap;overflow-wrap:anywhere;}
+.notes-cell summary::after{content:"▸";position:absolute;bottom:0;right:0;color:#246773;}
+.notes-cell[open]{position:static;overflow:visible;}
+.notes-cell[open] summary{height:18px;padding:0;position:relative;}
+.notes-cell[open] .notes-preview{display:none;}
 .notes-cell[open] summary::after{content:"▾";}
-.notes-full{margin-top:8px;white-space:pre-wrap;overflow-wrap:anywhere;max-height:240px;overflow-y:auto;}
+.notes-full{margin-top:6px;white-space:pre-wrap;overflow-wrap:anywhere;}
 </style>''',unsafe_allow_html=True)
 st.title('Special Ops - Partner Critical Issues.')
 st.caption('One shared view of the problems, people and next steps for priority topics with partners across Special Ops.')
@@ -39,7 +44,7 @@ with st.sidebar:
         st.session_state.pop('snapshot',None)
         st.session_state.pop('save_blocked',None)
         st.session_state.pop('pending_draft',None)
-    st.caption('Save before refreshing. Version: Partner tables · 2026-10-12')
+    st.caption('Save before refreshing. Version: Compact notes and partner colours · 2026-10-12')
 if 'snapshot' not in st.session_state:
     try:
         if store:st.session_state.snapshot=store.load()
@@ -72,7 +77,8 @@ mode=st.radio('View',['Table','Cards'],horizontal=True,index=0,key='partner_view
 columns=[f for f in FIELDS if f!='Project']
 for partner,title in PARTNERS.items():
     items=[r for r in records if r['Partner']==partner]
-    st.header(title)
+    partner_colors={'SPCL':'#A34336','SPOL':'#2463A6','PM':'#4C9F86'}
+    st.markdown('<h2 style="color:'+partner_colors[partner]+';">'+escape(title)+'</h2>',unsafe_allow_html=True)
     if not items:
         st.caption('No issues listed yet.');continue
     if mode=='Table':
@@ -81,7 +87,7 @@ for partner,title in PARTNERS.items():
         for project in projects(items):
             body.append('<tr class="project-row"><td colspan="'+str(len(columns))+'">'+escape(project or 'Other projects')+'</td></tr>')
             for item in (r for r in items if r['Project']==project):
-                body.append('<tr>'+''.join('<td>'+cell_html(f,item[f])+'</td>' for f in columns)+'</tr>')
+                body.append('<tr>'+''.join(('<td class="notes-column">' if f=='Notes' else '<td>')+cell_html(f,item[f])+'</td>' for f in columns)+'</tr>')
         st.markdown('<div class="partner-table-wrap"><table class="partner-table" aria-label="'+escape(title)+' issues"><thead><tr>'+header+'</tr></thead><tbody>'+''.join(body)+'</tbody></table></div>',unsafe_allow_html=True)
     else:
         for project in projects(items):
