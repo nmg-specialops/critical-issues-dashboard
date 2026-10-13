@@ -80,16 +80,16 @@ st.markdown(
 
     /* Topic */
     .partner-table th:first-child {
-        width: 110px;
+        width: 90px;
         box-sizing: border-box;
     }
 
     /* Date Identified and Targeted Resolution */
     .partner-table th:nth-child(7),
     .partner-table th:nth-child(8) {
-        width: 94px;
+        width: 84px;
         box-sizing: border-box;
-        padding: 6px;
+        padding: 4px;
         font-size: 12px;
     }
 
@@ -97,7 +97,7 @@ st.markdown(
     .partner-table tbody tr:not(.project-row) td:nth-child(8) {
         white-space: nowrap;
         overflow-wrap: normal;
-        padding: 6px;
+        padding: 4px;
         font-size: 12px;
     }
 
@@ -200,7 +200,7 @@ with st.sidebar:
 
     st.caption(
         "Save before refreshing. "
-        "Version: Compact Topic and Status · 2026-10-12"
+        "Version: Topic 90 · Dates 84 · Status 95"
     )
 
 if "snapshot" not in st.session_state:
