@@ -80,7 +80,7 @@ st.markdown(
 
     /* Topic */
     .partner-table th:first-child {
-        width: 90px;
+        width: 105px;
         box-sizing: border-box;
     }
 
