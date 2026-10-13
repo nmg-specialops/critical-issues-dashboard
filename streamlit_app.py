@@ -172,6 +172,9 @@ st.markdown(
         white-space: pre-wrap;
         overflow-wrap: anywhere;
     }
+    .partner-table tbody tr:not(.project-row) td:first-child {
+    font-weight: 700;
+}
     </style>
     """,
     unsafe_allow_html=True,
