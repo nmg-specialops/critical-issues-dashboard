@@ -1,4 +1,4 @@
-"""Partner critical issues: grouped tables, compact columns and open editing."""
+"""Partner critical issues: compact tables and explicit anonymous saves."""
 
 from datetime import date
 from hashlib import sha256
@@ -29,6 +29,7 @@ st.set_page_config(
     page_title="Special Ops - Partner Critical Issues",
     page_icon="📋",
     layout="wide",
+    initial_sidebar_state="collapsed",
 )
 
 st.markdown(
@@ -36,7 +37,7 @@ st.markdown(
     <style>
     .block-container {
         max-width: 1900px;
-        padding: 2rem 1.5rem 3rem;
+        padding: 2rem 1rem 3rem;
     }
 
     h1, h2, h3 {
@@ -50,7 +51,7 @@ st.markdown(
 
     .partner-table {
         width: 100%;
-        min-width: 1280px;
+        min-width: 1100px;
         border-collapse: collapse;
         table-layout: fixed;
         font-size: 13px;
@@ -58,7 +59,7 @@ st.markdown(
 
     .partner-table th,
     .partner-table td {
-        padding: 9px;
+        padding: 6px;
         border: 1px solid #d9dfe3;
         text-align: left;
         vertical-align: top;
@@ -78,13 +79,17 @@ st.markdown(
         font-weight: 650;
     }
 
-    /* Topic */
+    /* Topic: slightly wider, with bold text. */
     .partner-table th:first-child {
         width: 105px;
         box-sizing: border-box;
     }
 
-    /* Date Identified and Targeted Resolution */
+    .partner-table tbody tr:not(.project-row) td:first-child {
+        font-weight: 700;
+    }
+
+    /* Identified and Target date */
     .partner-table th:nth-child(7),
     .partner-table th:nth-child(8) {
         width: 84px;
@@ -103,18 +108,18 @@ st.markdown(
 
     /* Status */
     .partner-table th:nth-child(10) {
-        width: 95px;
+        width: 80px;
         box-sizing: border-box;
     }
 
-    /* Notes fill the height established by the other cells. */
+    /* Notes fit within the height set by the other cells. */
     .partner-table td.notes-column {
         position: relative;
     }
 
     .notes-cell {
         position: absolute;
-        inset: 9px;
+        inset: 6px;
         overflow: hidden;
     }
 
@@ -172,9 +177,6 @@ st.markdown(
         white-space: pre-wrap;
         overflow-wrap: anywhere;
     }
-    .partner-table tbody tr:not(.project-row) td:first-child {
-    font-weight: 700;
-}
     </style>
     """,
     unsafe_allow_html=True,
@@ -203,7 +205,7 @@ with st.sidebar:
 
     st.caption(
         "Save before refreshing. "
-        "Version: Topic 90 · Dates 84 · Status 95"
+        "Version: Compact table · Update last · 2026-10-13"
     )
 
 if "snapshot" not in st.session_state:
@@ -280,6 +282,27 @@ partner_colors = {
     "PM": "#4C9F86",    # Mint green
 }
 
+# Display labels only; workbook and editor names remain unchanged.
+table_labels = {
+    "Date Identified": "Identified",
+    "Targeted Resolution": "Target date",
+}
+
+# Explicit order keeps Update as the final column.
+columns = [
+    "Topic",
+    "Root cause",
+    "Problem",
+    "Effects",
+    "Solutions",
+    "Responsible",
+    "Date Identified",
+    "Targeted Resolution",
+    "Notes",
+    "Status",
+    "Update",
+]
+
 mode = st.radio(
     "View",
     ["Table", "Cards"],
@@ -287,8 +310,6 @@ mode = st.radio(
     index=0,
     key="partner_view_20261012",
 )
-
-columns = [field for field in FIELDS if field != "Project"]
 
 for partner, title in PARTNERS.items():
     items = [
@@ -312,7 +333,9 @@ for partner, title in PARTNERS.items():
 
     if mode == "Table":
         header = "".join(
-            '<th scope="col">' + escape(field) + "</th>"
+            '<th scope="col">'
+            + escape(table_labels.get(field, field))
+            + "</th>"
             for field in columns
         )
         body = []
