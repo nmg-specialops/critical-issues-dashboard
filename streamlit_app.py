@@ -185,6 +185,17 @@ st.markdown(
     padding-bottom: 6px;
     line-height: 1.4;
 }
+.partner-table thead th:nth-child(7),
+.partner-table thead th:nth-child(8),
+.partner-table tbody tr:not(.project-row) td:nth-child(7),
+.partner-table tbody tr:not(.project-row) td:nth-child(8) {
+    font-size: 13px;
+}
+
+.partner-table tbody tr:not(.project-row) td:nth-child(7),
+.partner-table tbody tr:not(.project-row) td:nth-child(8) {
+    letter-spacing: -0.25px;
+}
     </style>
     """,
     unsafe_allow_html=True,
