@@ -44,10 +44,12 @@ st.markdown(
         letter-spacing: -.025em;
     }
 
-    .partner-table-wrap {
-        overflow-x: auto;
-        margin-bottom: 24px;
-    }
+   .partner-table-wrap {
+    overflow-x: auto;
+    margin-left: 8px;
+    width: calc(100% - 8px);
+    margin-bottom: 24px;
+}
 
     .partner-table {
         width: 100%;
@@ -177,6 +179,12 @@ st.markdown(
         white-space: pre-wrap;
         overflow-wrap: anywhere;
     }
+    .partner-table thead th {
+    vertical-align: middle;
+    padding-top: 6px;
+    padding-bottom: 6px;
+    line-height: 1.4;
+}
     </style>
     """,
     unsafe_allow_html=True,
@@ -284,8 +292,9 @@ partner_colors = {
 
 # Display labels only; workbook and editor names remain unchanged.
 table_labels = {
+    "Root cause": "Root Cause",
     "Date Identified": "Identified",
-    "Targeted Resolution": "Target date",
+    "Targeted Resolution": "Target Date",
 }
 
 # Explicit order keeps Update as the final column.
